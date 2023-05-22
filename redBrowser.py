@@ -22,11 +22,11 @@ class MyWebBrowser():
         self.go_button = QPushButton("Go") # Create a button 
         self.go_button.setMinimumHeight(30) # Set the maximum height of the button
 
-        self.back_button = QPushButton("back") 
+        self.back_button = QPushButton("<__") 
         self.back_button.setMinimumHeight(30)
 
         
-        self.forward_button = QPushButton(">")    
+        self.forward_button = QPushButton("__>")    
         self.forward_button.setMinimumHeight(30)
 
         self.reload_button = QPushButton("Reload")
@@ -56,7 +56,7 @@ class MyWebBrowser():
     
     def navigate(self, url):
         if not url.startswith("http"):
-            url = "http://" + url
+            url = "https://" + url
             self.url_bar.setText(url)
         self.browser.setUrl(QUrl(url))
 
