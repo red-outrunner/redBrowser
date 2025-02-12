@@ -4,6 +4,7 @@ from PyQt5.QtWebEngineWidgets import *
 import json
 import os
 from datetime import datetime
+import requests
 
 class MyWebBrowser():
     def __init__(self):
@@ -119,7 +120,13 @@ class MyWebBrowser():
                 self.bookmark_button.setText("⭐")
                 self.save_storage()
                 return
-                
+
+    def preload_url(url):
+        requests.post(f"http://localhost:3000/api/cache/preload?url={url}")
+
+    def sync_bookmarks(bookmarks):
+        requests.post("http://localhost:3000/api/bookmarks/sync", json=bookmarks)
+        
         # Add new bookmark
         self.bookmarks.append({
             'url': current_url,
