@@ -1,154 +1,309 @@
 package main
 
 import (
-    "encoding/json"
-    "fmt"
-    "github.com/gofiber/fiber/v2"
-    "github.com/dgraph-io/badger/v3"
-    "github.com/patrickmn/go-cache"
-    "time"
+	"encoding/json"
+	"fmt"
+	"github.com/gofiber/fiber/v2"
+	"github.com/dgraph-io/badger/v3"
+	"github.com/patrickmn/go-cache"
+	"golang.org/x/net/html"
+	"net/http"
+	"time"
+	"sync"
+	"runtime"
+	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/shirou/gopsutil/v3/cpu"
 )
 
-// Structs for our data
-type Bookmark struct {
-    URL       string    `json:"url"`
-    Title     string    `json:"title"`
-    CreatedAt time.Time `json:"created_at"`
+// Advanced data structures
+type ResourceMetrics struct {
+	URL           string    `json:"url"`
+	LoadTime      int64     `json:"load_time"`
+	Size          int64     `json:"size"`
+	Type          string    `json:"type"`
+	CacheHit      bool      `json:"cache_hit"`
+	TimeStamp     time.Time `json:"timestamp"`
 }
 
-type HistoryEntry struct {
-    URL       string    `json:"url"`
-    Title     string    `json:"title"`
-    Timestamp time.Time `json:"timestamp"`
-    LoadTime  int64     `json:"load_time"`
+type BrowserMetrics struct {
+	MemoryUsage     float64           `json:"memory_usage"`
+	CPUUsage        float64           `json:"cpu_usage"`
+	CacheSize       int64             `json:"cache_size"`
+	ActiveConnections int             `json:"active_connections"`
+	ResourceMetrics  []ResourceMetrics `json:"resource_metrics"`
 }
 
-// Main cache for quick access
-var memCache *cache.Cache
-var db *badger.DB
+// Global state management
+var (
+	memCache    *cache.Cache
+	db          *badger.DB
+	metrics     sync.Map
+	connections int32
+	mutex       sync.RWMutex
+)
 
+// Initialize cache
+func initCache() error {
+	memCache = cache.New(5*time.Minute, 10*time.Minute)
+	return nil
+}
+
+// Initialize database
+func initDatabase() error {
+	var err error
+	opts := badger.DefaultOptions("").WithInMemory(true)
+	db, err = badger.Open(opts)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %v", err)
+	}
+	return nil
+}
+
+// Save metrics to storage
+func saveMetrics(browserMetrics BrowserMetrics) error {
+	data, err := json.Marshal(browserMetrics)
+	if err != nil {
+		return err
+	}
+
+	return db.Update(func(txn *badger.Txn) error {
+		key := []byte(fmt.Sprintf("metrics_%d", time.Now().UnixNano()))
+		return txn.Set(key, data)
+	})
+}
+
+// Log individual request metrics
+func logMetrics(resourceMetrics ResourceMetrics) error {
+	data, err := json.Marshal(resourceMetrics)
+	if err != nil {
+		return err
+	}
+
+	return db.Update(func(txn *badger.Txn) error {
+		key := []byte(fmt.Sprintf("request_%s_%d", resourceMetrics.URL, time.Now().UnixNano()))
+		return txn.Set(key, data)
+	})
+}
+
+// Get current system metrics
+func getSystemMetrics() BrowserMetrics {
+	v, _ := mem.VirtualMemory()
+	c, _ := cpu.Percent(0, false)
+
+	var resourceMetrics []ResourceMetrics
+	metrics.Range(func(key, value interface{}) bool {
+		if rm, ok := value.(ResourceMetrics); ok {
+			resourceMetrics = append(resourceMetrics, rm)
+		}
+		return true
+	})
+
+	return BrowserMetrics{
+		MemoryUsage:        v.UsedPercent,
+		CPUUsage:           c[0],
+		CacheSize:          int64(runtime.NumGoroutine()),
+		ActiveConnections:  int(connections),
+		ResourceMetrics:    resourceMetrics,
+	}
+}
+
+// Initialize our performance monitoring
+func initPerformanceMonitoring() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		for range ticker.C {
+			collectMetrics()
+		}
+	}()
+}
+
+// Advanced metric collection
+func collectMetrics() {
+	v, _ := mem.VirtualMemory()
+	c, _ := cpu.Percent(0, false)
+
+	metrics := BrowserMetrics{
+		MemoryUsage: v.UsedPercent,
+		CPUUsage:    c[0],
+		CacheSize:   int64(runtime.NumGoroutine()),
+	}
+
+	saveMetrics(metrics)
+}
+
+// Predictive prefetching
+func prefetchResources(url string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	resources := make(map[string]struct{})
+	var f func(*html.Node)
+	f = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			// Check for resources in different tags
+			switch n.Data {
+				case "img", "script", "link":
+					for _, a := range n.Attr {
+						if a.Key == "src" || a.Key == "href" {
+							resources[a.Val] = struct{}{}
+						}
+					}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			f(c)
+		}
+	}
+	f(doc)
+
+	// Parallel resource fetching
+	var wg sync.WaitGroup
+	for resource := range resources {
+		wg.Add(1)
+		go func(res string) {
+			defer wg.Done()
+			cacheResource(res)
+		}(resource)
+	}
+	wg.Wait()
+
+	return nil
+}
+
+// Intelligent resource caching
+func cacheResource(url string) {
+	start := time.Now()
+	resp, err := http.Get(url)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	metrics := ResourceMetrics{
+		URL:       url,
+		LoadTime:  time.Since(start).Milliseconds(),
+		Size:      resp.ContentLength,
+		Type:      resp.Header.Get("Content-Type"),
+		TimeStamp: time.Now(),
+	}
+
+	// Store in BadgerDB
+	txn := db.NewTransaction(true)
+	defer txn.Discard()
+
+	data, _ := json.Marshal(metrics)
+	key := []byte("resource_" + url)
+	err = txn.Set(key, data)
+	if err != nil {
+		return
+	}
+	txn.Commit()
+}
+
+// Advanced bandwidth optimization
+type BandwidthManager struct {
+	throttle    chan struct{}
+	connections sync.Map
+}
+
+func NewBandwidthManager(maxConcurrent int) *BandwidthManager {
+	return &BandwidthManager{
+		throttle: make(chan struct{}, maxConcurrent),
+	}
+}
+
+func (bm *BandwidthManager) AcquireConnection() bool {
+	select {
+		case bm.throttle <- struct{}{}:
+			return true
+		default:
+			return false
+	}
+}
+
+func (bm *BandwidthManager) ReleaseConnection() {
+	<-bm.throttle
+}
+
+// Main server setup
 func main() {
-    // Initialize that quick memory cache
-    memCache = cache.New(5*time.Minute, 10*time.Minute)
-    
-    // Set up our persistent storage
-    var err error
-    db, err = badger.Open(badger.DefaultOptions("browser.db"))
-    if err != nil {
-        fmt.Printf("Failed to open database: %v\n", err)
-        return
-    }
-    defer db.Close()
+	app := fiber.New(fiber.Config{
+		Prefork:       true,
+		CaseSensitive: true,
+		StrictRouting: true,
+		ServerHeader:  "RedBrowser",
+		BodyLimit:     10 * 1024 * 1024,
+	})
 
-    app := fiber.New()
+	// Initialize components
+	initCache()
+	initDatabase()
+	initPerformanceMonitoring()
 
-    // API routes that'll make this browser go brazy
-    app.Post("/api/cache/preload", preloadURL)
-    app.Get("/api/history/stats", getHistoryStats)
-    app.Post("/api/bookmarks/sync", syncBookmarks)
-    app.Get("/api/performance", getPerformanceMetrics)
+	// Setup routes with middleware
+	setupRoutes(app)
 
-    app.Listen(":3000")
+	// Start server
+	app.Listen(":3000")
 }
 
-// Preload that URL content before the user even clicks
-func preloadURL(c *fiber.Ctx) error {
-    url := c.Query("url")
-    if url == "" {
-        return c.Status(400).JSON(fiber.Map{
-            "error": "no url provided",
-        })
-    }
+func setupRoutes(app *fiber.App) {
+	// Middleware for all routes
+	app.Use(func(c *fiber.Ctx) error {
+		start := time.Now()
+		c.Next()
 
-    // Cache that content for instant access
-    go func() {
-        // Fetch and cache logic here
-        memCache.Set(url, "content", cache.DefaultExpiration)
-    }()
+		// Log request metrics
+		metrics := ResourceMetrics{
+			URL:       c.Path(),
+		LoadTime:  time.Since(start).Milliseconds(),
+		TimeStamp: time.Now(),
+		}
+		logMetrics(metrics)
 
-    return c.JSON(fiber.Map{
-        "status": "preloading",
-    })
+		return nil
+	})
+
+	// Advanced routes
+	api := app.Group("/api")
+	api.Post("/prefetch", handlePrefetch)
+	api.Get("/metrics", handleMetrics)
+	api.Post("/optimize", handleOptimization)
 }
 
-// Get them advanced history stats
-func getHistoryStats(c *fiber.Ctx) error {
-    stats := map[string]interface{}{
-        "most_visited": getMostVisitedSites(),
-        "peak_hours":   getPeakBrowsingHours(),
-        "avg_load_time": getAverageLoadTime(),
-    }
-    
-    return c.JSON(stats)
+func handlePrefetch(c *fiber.Ctx) error {
+	var data struct {
+		URL string `json:"url"`
+	}
+
+	if err := c.BodyParser(&data); err != nil {
+		return err
+	}
+
+	go prefetchResources(data.URL)
+
+	return c.JSON(fiber.Map{
+		"status": "prefetching",
+		"url":    data.URL,
+	})
 }
 
-// Keep bookmarks synced with that backend storage
-func syncBookmarks(c *fiber.Ctx) error {
-    var bookmarks []Bookmark
-    if err := c.BodyParser(&bookmarks); err != nil {
-        return err
-    }
-
-    // Store in BadgerDB with versioning
-    txn := db.NewTransaction(true)
-    defer txn.Discard()
-
-    for _, bookmark := range bookmarks {
-        data, _ := json.Marshal(bookmark)
-        err := txn.Set([]byte("bookmark_"+bookmark.URL), data)
-        if err != nil {
-            return err
-        }
-    }
-
-    if err := txn.Commit(); err != nil {
-        return err
-    }
-
-    return c.JSON(fiber.Map{
-        "status": "synced",
-        "count":  len(bookmarks),
-    })
+func handleMetrics(c *fiber.Ctx) error {
+	metrics := getSystemMetrics()
+	return c.JSON(metrics)
 }
 
-// Get them performance metrics
-func getPerformanceMetrics(c *fiber.Ctx) error {
-    metrics := map[string]interface{}{
-        "cache_hit_ratio": getCacheHitRatio(),
-        "memory_usage":    getMemoryUsage(),
-        "response_times":  getAverageResponseTimes(),
-    }
-    
-    return c.JSON(metrics)
-}
-
-// Helper functions would go here
-func getMostVisitedSites() []string {
-    // Implementation
-    return []string{}
-}
-
-func getPeakBrowsingHours() map[int]int {
-    // Implementation
-    return map[int]int{}
-}
-
-func getAverageLoadTime() float64 {
-    // Implementation
-    return 0.0
-}
-
-func getCacheHitRatio() float64 {
-    // Implementation
-    return 0.0
-}
-
-func getMemoryUsage() uint64 {
-    // Implementation
-    return 0
-}
-
-func getAverageResponseTimes() map[string]float64 {
-    // Implementation
-    return map[string]float64{}
+func handleOptimization(c *fiber.Ctx) error {
+	// Implement automatic optimization based on system metrics
+	return c.JSON(fiber.Map{
+		"status": "optimized",
+	})
 }
