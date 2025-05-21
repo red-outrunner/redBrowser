@@ -52,7 +52,7 @@ class WebBrowser(QMainWindow):
 
         # Download button
         self.download_button = QPushButton("⬇️ Download")
-        self.download_button.clicked.connect(self.start_download)
+        self.download_button.clicked.connect(self.trigger_download_prompt)
         self.nav_toolbar.addWidget(self.download_button)
 
         # Address bar
@@ -77,13 +77,16 @@ class WebBrowser(QMainWindow):
         # Download manager
         self.download_manager = {}
 
-    def add_new_tab(self, url="https://www.google.com "):
+    def trigger_download_prompt(self):
+        QMessageBox.information(self, "Download Info", "Downloads will start automatically when clicking downloadable content in a page.")
+
+    def add_new_tab(self, url="https://www.google.com"):
         """Add a new tab with a QWebEngineView."""
         tab = QWidget()
         layout = QVBoxLayout()
         web_view = QWebEngineView()
         web_view.load(QUrl(url))
-        web_view.titleChanged.connect(lambda title: self.setTabText(self.tabs.indexOf(tab), title))
+        web_view.titleChanged.connect(lambda title: self.tabs.setTabText(self.tabs.indexOf(tab), title))
         web_view.urlChanged.connect(self.update_address_bar)
         web_view.loadFinished.connect(self.on_load_finished)
 
