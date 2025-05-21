@@ -1,4 +1,2 @@
-PyQt5==5.15.9
-PyQtWebEngine==5.15.6
-python-dateutil==2.8.2
-requests
+PyQt5>=5.15.0
+PyQtWebEngine>=5.15.0
