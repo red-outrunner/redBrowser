@@ -190,7 +190,8 @@ class WebBrowser(QMainWindow):
         if file_path:
             download.setPath(file_path)
             download.accept()
-            self.download_manager[download.guid()] = download
+            # QWebEngineDownloadItem does not have guid(), use suggestedFileName as key
+            self.download_manager[download.suggestedFileName()] = download
             download.finished.connect(lambda: self.download_finished(download))
             download.downloadProgress.connect(self.download_progress)
 
