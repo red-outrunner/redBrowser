@@ -62,3 +62,6 @@ You tryna make this even better? Pull up:
 This browser ain't trying to compete with Chrome or Firefox - that's not the wave. This for them times when you need something that just works without turning your computer into a space heater.
 ---
 Built with love for low-spec warriors everywhere. No computer left behind.
+## To add
+- support for ai webistes
+- some level of javascript support
