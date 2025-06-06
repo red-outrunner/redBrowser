@@ -16,7 +16,7 @@ ReD Browser is that minimalist wave - a Python-built browser that:
 
 Look, not everybody got that M2 MacBook Pro sitting pretty. Some of us out here grinding on hardware that's seen better days. That's where ReD Browser comes in - letting you browse these modern sites without your computer having an existential crisis.
 
-## Features 🌊
+## Features
 
 - **Lightweight AF**: Your CPU can finally chill
 - **Bookmark System**: Save your spots with that ⭐ button
@@ -63,5 +63,5 @@ This browser ain't trying to compete with Chrome or Firefox - that's not the wav
 ---
 Built with love for low-spec warriors everywhere. No computer left behind.
 ## To add
-- support for ai webistes
 - some level of javascript support
+- more settings and caching
