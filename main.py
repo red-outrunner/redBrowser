@@ -6,31 +6,43 @@ from PyQt5.QtWidgets import (
     QPushButton, QVBoxLayout, QWidget, QLabel, QFileDialog, QMessageBox
 )
 from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile, QWebEngineDownloadItem
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile, QWebEngineDownloadItem, QWebEngineSettings
 from PyQt5.QtGui import QIcon
 
 
 class WebBrowser(QMainWindow):
+    """
+    A simple web browser built with PyQt5.
+    Features include tabbing, navigation, history, bookmarks, and a download manager.
+    """
     def __init__(self):
+        """Initializes the browser window and its components."""
         super().__init__()
         self.setWindowTitle("PyQt5 Web Browser")
         self.setGeometry(100, 100, 1200, 800)
 
+        # File paths for storing history and bookmarks
         self.history_file = "browser_history.json"
         self.bookmarks_file = "bookmarks.json"
+        
+        # Load existing history and bookmarks
         self.load_history()
         self.load_bookmarks()
 
+        # Main tab widget
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.setCentralWidget(self.tabs)
 
+        # Add the initial tab
         self.add_new_tab()
 
+        # Navigation toolbar
         self.nav_toolbar = QToolBar("Navigation")
         self.addToolBar(Qt.TopToolBarArea, self.nav_toolbar)
 
+        # Navigation buttons
         self.back_button = QPushButton("← Back")
         self.back_button.clicked.connect(self.navigate_back)
         self.nav_toolbar.addWidget(self.back_button)
@@ -47,10 +59,12 @@ class WebBrowser(QMainWindow):
         self.download_button.clicked.connect(self.open_downloads_tab)
         self.nav_toolbar.addWidget(self.download_button)
 
+        # Address bar
         self.address_bar = QLineEdit()
         self.address_bar.returnPressed.connect(self.load_url)
         self.nav_toolbar.addWidget(self.address_bar)
 
+        # Settings menu
         self.settings_menu = self.menuBar().addMenu("Settings")
         self.save_history_action = self.settings_menu.addAction("Save History")
         self.save_history_action.triggered.connect(self.save_history)
@@ -64,14 +78,16 @@ class WebBrowser(QMainWindow):
         self.clear_bookmarks_action = self.settings_menu.addAction("Clear Bookmarks")
         self.clear_bookmarks_action.triggered.connect(self.clear_bookmarks)
 
+        # Dictionary to manage download items
         self.download_manager = {}
 
     def open_downloads_tab(self):
-        # Prepare the list of downloads
+        """Creates and opens a new tab to display the list of downloads."""
         downloads_html = ""
         if not self.download_manager:
             downloads_html = "<tr><td colspan='3'>No downloads yet.</td></tr>"
         else:
+            # Generate table rows for each download
             for filename, download_item in self.download_manager.items():
                 state_map = {
                     QWebEngineDownloadItem.DownloadRequested: "Requested",
@@ -84,7 +100,7 @@ class WebBrowser(QMainWindow):
                 path = download_item.path()
                 downloads_html += f"<tr><td>{filename}</td><td>{status}</td><td>{path}</td></tr>"
 
-
+        # Full HTML content for the downloads page
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -118,9 +134,22 @@ class WebBrowser(QMainWindow):
         self.add_new_tab(html_content=html_content, title="Downloads")
 
     def add_new_tab(self, url="https://www.google.com", html_content=None, title="New Tab"):
+        """Adds a new tab to the browser, either with a URL or with custom HTML content."""
         tab = QWidget()
         layout = QVBoxLayout()
         web_view = QWebEngineView()
+
+        # --- JAVASCRIPT AND MODERN WEB FEATURES FIX ---
+        settings = web_view.settings()
+        settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
+        settings.setAttribute(QWebEngineSettings.JavascriptCanOpenWindows, True)
+        settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
+        settings.setAttribute(QWebEngineSettings.PluginsEnabled, True)
+        # Corrected typo from XssAuditingEnabled to XSSAuditingEnabled
+        settings.setAttribute(QWebEngineSettings.XSSAuditingEnabled, True)
+        settings.setAttribute(QWebEngineSettings.ScrollAnimatorEnabled, True)
+        settings.setAttribute(QWebEngineSettings.FullScreenSupportEnabled, True)
+        # ---------------------------------------------
 
         if html_content:
             web_view.setHtml(html_content, QUrl("about:blank"))
@@ -140,9 +169,11 @@ class WebBrowser(QMainWindow):
         self.tabs.setCurrentWidget(tab)
 
     def close_tab(self, index):
+        """Closes the tab at the given index."""
         self.tabs.removeTab(index)
 
     def load_url(self):
+        """Loads the URL from the address bar into the current tab."""
         url = self.address_bar.text()
         if not url.startswith("http"):
             url = "https://" + url
@@ -151,36 +182,44 @@ class WebBrowser(QMainWindow):
         web_view.load(QUrl(url))
 
     def update_address_bar(self, url):
+        """Updates the address bar with the URL of the current page."""
         self.address_bar.setText(url.toString())
 
     def navigate_back(self):
+        """Navigates to the previous page in the current tab's history."""
         current_tab = self.tabs.currentWidget()
         web_view = current_tab.findChild(QWebEngineView)
         web_view.back()
 
     def navigate_forward(self):
+        """Navigates to the next page in the current tab's history."""
         current_tab = self.tabs.currentWidget()
         web_view = current_tab.findChild(QWebEngineView)
         web_view.forward()
 
     def refresh_page(self):
+        """Refreshes the current page."""
         current_tab = self.tabs.currentWidget()
         web_view = current_tab.findChild(QWebEngineView)
         web_view.reload()
 
     def on_load_finished(self, ok):
+        """Adds the URL to history when a page finishes loading."""
         if ok:
             current_tab = self.tabs.currentWidget()
             web_view = current_tab.findChild(QWebEngineView)
             url = web_view.url().toString()
-            self.add_to_history(url)
+            if not url.startswith("about:"):
+                self.add_to_history(url)
 
     def add_to_history(self, url):
+        """Adds a URL to the browsing history."""
         if url not in self.history:
             self.history.append(url)
             self.save_history()
 
     def save_history(self):
+        """Saves the current browsing history to a JSON file."""
         try:
             with open(self.history_file, 'w') as f:
                 json.dump(self.history, f)
@@ -188,6 +227,7 @@ class WebBrowser(QMainWindow):
             print(f"Error saving history: {e}")
 
     def load_history(self):
+        """Loads browsing history from a JSON file."""
         self.history = []
         if os.path.exists(self.history_file):
             try:
@@ -197,6 +237,7 @@ class WebBrowser(QMainWindow):
                 print(f"Error loading history: {e}")
 
     def save_bookmarks(self):
+        """Saves bookmarks to a JSON file."""
         try:
             with open(self.bookmarks_file, 'w') as f:
                 json.dump(self.bookmarks, f)
@@ -204,6 +245,7 @@ class WebBrowser(QMainWindow):
             print(f"Error saving bookmarks: {e}")
 
     def load_bookmarks(self):
+        """Loads bookmarks from a JSON file."""
         self.bookmarks = {}
         if os.path.exists(self.bookmarks_file):
             try:
@@ -213,6 +255,7 @@ class WebBrowser(QMainWindow):
                 print(f"Error loading bookmarks: {e}")
 
     def handle_download(self, download):
+        """Handles a requested download by opening a save file dialog."""
         file_path, _ = QFileDialog.getSaveFileName(self, "Save File", download.suggestedFileName())
         if file_path:
             download.setPath(file_path)
@@ -222,22 +265,26 @@ class WebBrowser(QMainWindow):
             download.downloadProgress.connect(self.download_progress)
 
     def download_progress(self, bytes_received, bytes_total):
+        """Prints the download progress to the console."""
         if bytes_total > 0:
             percent = (bytes_received / bytes_total) * 100
             print(f"Download Progress: {percent:.2f}%")
 
     def download_finished(self, download):
+        """Shows a message box when a download is complete or has failed."""
         if download.state() == QWebEngineDownloadItem.DownloadCompleted:
             QMessageBox.information(self, "Download Complete", f"File saved to: {download.path()}")
         elif download.state() == QWebEngineDownloadItem.DownloadInterrupted:
             QMessageBox.warning(self, "Download Failed", "The download was interrupted.")
 
     def clear_history(self):
+        """Clears the browsing history."""
         self.history = []
         self.save_history()
-        QMessageBox.information(self, "History Cleared", "Browse history has been cleared.")
+        QMessageBox.information(self, "History Cleared", "Browsing history has been cleared.")
 
     def clear_bookmarks(self):
+        """Clears all saved bookmarks."""
         self.bookmarks = {}
         self.save_bookmarks()
         QMessageBox.information(self, "Bookmarks Cleared", "Bookmarks have been cleared.")
