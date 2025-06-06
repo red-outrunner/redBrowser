@@ -16,8 +16,14 @@ class WebBrowser(QMainWindow):
     def __init__(self):
         """Initializes the browser window and its components."""
         super().__init__()
+        # Set the window title to the new app name
         self.setWindowTitle("redBrowser")
         self.setGeometry(100, 100, 1200, 800)
+
+        # Set the application icon from the assets folder
+        logo_path = 'assets/red.jpg'
+        if os.path.exists(logo_path):
+            self.setWindowIcon(QIcon(logo_path))
 
         # File paths for storing history and bookmarks
         self.history_file = "browser_history.json"
