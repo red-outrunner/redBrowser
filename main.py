@@ -67,14 +67,67 @@ class WebBrowser(QMainWindow):
         self.download_manager = {}
 
     def open_downloads_tab(self):
-        self.add_new_tab("chrome://downloads/")
+        # Prepare the list of downloads
+        downloads_html = ""
+        if not self.download_manager:
+            downloads_html = "<tr><td colspan='3'>No downloads yet.</td></tr>"
+        else:
+            for filename, download_item in self.download_manager.items():
+                state_map = {
+                    QWebEngineDownloadItem.DownloadRequested: "Requested",
+                    QWebEngineDownloadItem.DownloadInProgress: "In Progress",
+                    QWebEngineDownloadItem.DownloadCompleted: "Completed",
+                    QWebEngineDownloadItem.DownloadCancelled: "Cancelled",
+                    QWebEngineDownloadItem.DownloadInterrupted: "Interrupted"
+                }
+                status = state_map.get(download_item.state(), "Unknown")
+                path = download_item.path()
+                downloads_html += f"<tr><td>{filename}</td><td>{status}</td><td>{path}</td></tr>"
 
-    def add_new_tab(self, url="https://www.google.com"):
+
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Downloads</title>
+            <style>
+                body {{ font-family: sans-serif; padding: 20px; }}
+                h1 {{ color: #333; }}
+                table {{ width: 100%; border-collapse: collapse; }}
+                th, td {{ padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
+                th {{ background-color: #f0f0f0; }}
+            </style>
+        </head>
+        <body>
+            <h1>Downloads</h1>
+            <table id="downloads-table">
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Status</th>
+                        <th>Save Location</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {downloads_html}
+                </tbody>
+            </table>
+        </body>
+        </html>
+        """
+        self.add_new_tab(html_content=html_content, title="Downloads")
+
+    def add_new_tab(self, url="https://www.google.com", html_content=None, title="New Tab"):
         tab = QWidget()
         layout = QVBoxLayout()
         web_view = QWebEngineView()
-        web_view.load(QUrl(url))
-        web_view.titleChanged.connect(lambda title: self.tabs.setTabText(self.tabs.indexOf(tab), title))
+
+        if html_content:
+            web_view.setHtml(html_content, QUrl("about:blank"))
+        else:
+            web_view.load(QUrl(url))
+        
+        web_view.titleChanged.connect(lambda new_title: self.tabs.setTabText(self.tabs.indexOf(tab), title if title != "New Tab" else new_title))
         web_view.urlChanged.connect(self.update_address_bar)
         web_view.loadFinished.connect(self.on_load_finished)
 
@@ -83,7 +136,7 @@ class WebBrowser(QMainWindow):
 
         layout.addWidget(web_view)
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "New Tab")
+        self.tabs.addTab(tab, title)
         self.tabs.setCurrentWidget(tab)
 
     def close_tab(self, index):
@@ -182,7 +235,7 @@ class WebBrowser(QMainWindow):
     def clear_history(self):
         self.history = []
         self.save_history()
-        QMessageBox.information(self, "History Cleared", "Browsing history has been cleared.")
+        QMessageBox.information(self, "History Cleared", "Browse history has been cleared.")
 
     def clear_bookmarks(self):
         self.bookmarks = {}
