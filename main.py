@@ -7,7 +7,29 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile, QWebEngineDownloadItem, QWebEngineSettings
+from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor
 from PyQt5.QtGui import QIcon
+
+class WebEngineUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
+    """
+    Custom URL request interceptor to modify headers, specifically the Content Security Policy.
+    This allows us to enable features like WebAssembly that might be blocked by default.
+    """
+    def interceptRequest(self, info):
+        """Intercepts network requests to modify headers."""
+        # Get the original CSP header, if it exists
+        original_csp = info.httpHeader(b"Content-Security-Policy")
+        if original_csp:
+            # Append our required permissions to the existing script-src directive
+            new_csp = original_csp.decode('utf-8')
+            if 'script-src' in new_csp:
+                new_csp = new_csp.replace("script-src", "script-src 'wasm-unsafe-eval'")
+            else:
+                new_csp += "; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';"
+            info.setHttpHeader(b"Content-Security-Policy", new_csp.encode('utf-8'))
+        else:
+            # If no CSP exists, create one with the necessary permissions
+            info.setHttpHeader(b"Content-Security-Policy", b"script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; object-src 'self';")
 
 
 class WebBrowser(QMainWindow):
@@ -34,6 +56,14 @@ class WebBrowser(QMainWindow):
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.setCentralWidget(self.tabs)
+        
+        # Set up the custom URL request interceptor for the default profile
+        self.profile = QWebEngineProfile.defaultProfile()
+        self.interceptor = WebEngineUrlRequestInterceptor()
+        self.profile.setUrlRequestInterceptor(self.interceptor)
+
+        # Set a modern user agent
+        self.profile.setHttpUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
 
         # Add the initial tab
         self.add_new_tab()
@@ -138,6 +168,7 @@ class WebBrowser(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout()
         web_view = QWebEngineView()
+        web_view.setPage(web_view.page()) # Associate the view with the default profile
 
         # --- JAVASCRIPT AND MODERN WEB FEATURES FIX ---
         settings = web_view.settings()
@@ -145,10 +176,14 @@ class WebBrowser(QMainWindow):
         settings.setAttribute(QWebEngineSettings.JavascriptCanOpenWindows, True)
         settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
         settings.setAttribute(QWebEngineSettings.PluginsEnabled, True)
-        # Corrected typo from XssAuditingEnabled to XSSAuditingEnabled
         settings.setAttribute(QWebEngineSettings.XSSAuditingEnabled, True)
         settings.setAttribute(QWebEngineSettings.ScrollAnimatorEnabled, True)
         settings.setAttribute(QWebEngineSettings.FullScreenSupportEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebGLEnabled, True)
+        settings.setAttribute(QWebEngineSettings.Accelerated2dCanvasEnabled, True)
+        settings.setAttribute(QWebEngineSettings.DnsPrefetchingEnabled, True)
+        settings.setAttribute(QWebEngineSettings.HyperlinkAuditingEnabled, True)
+
         # ---------------------------------------------
 
         if html_content:
@@ -160,8 +195,7 @@ class WebBrowser(QMainWindow):
         web_view.urlChanged.connect(self.update_address_bar)
         web_view.loadFinished.connect(self.on_load_finished)
 
-        profile = QWebEngineProfile.defaultProfile()
-        profile.downloadRequested.connect(self.handle_download)
+        self.profile.downloadRequested.connect(self.handle_download)
 
         layout.addWidget(web_view)
         tab.setLayout(layout)
