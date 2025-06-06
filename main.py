@@ -17,14 +17,16 @@ class WebEngineUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
     """
     def interceptRequest(self, info):
         """Intercepts network requests to modify headers."""
-        # Get the original CSP header, if it exists
-        original_csp = info.httpHeader(b"Content-Security-Policy")
+        # Corrected method from httpHeader to requestHeader to get the original CSP header
+        original_csp = info.requestHeader(b"Content-Security-Policy")
         if original_csp:
             # Append our required permissions to the existing script-src directive
             new_csp = original_csp.decode('utf-8')
             if 'script-src' in new_csp:
+                # Add wasm-unsafe-eval to the existing script-src directive
                 new_csp = new_csp.replace("script-src", "script-src 'wasm-unsafe-eval'")
             else:
+                # If no script-src, add our own
                 new_csp += "; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';"
             info.setHttpHeader(b"Content-Security-Policy", new_csp.encode('utf-8'))
         else:
@@ -181,7 +183,7 @@ class WebBrowser(QMainWindow):
         settings.setAttribute(QWebEngineSettings.FullScreenSupportEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebGLEnabled, True)
         settings.setAttribute(QWebEngineSettings.Accelerated2dCanvasEnabled, True)
-        settings.setAttribute(QWebEngineSettings.DnsPrefetchingEnabled, True)
+        settings.setAttribute(QWebEngineSettings.DnsPrefetchEnabled, True)
         settings.setAttribute(QWebEngineSettings.HyperlinkAuditingEnabled, True)
 
         # ---------------------------------------------
